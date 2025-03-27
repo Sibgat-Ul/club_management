@@ -1,13 +1,12 @@
 <?php
-define('HOST', 'localhost');
-define('DB_NAME', 'club_management');
-define('USER', 'dev'); 
-define('PASS', 'dev');
-
 $host = "localhost";
 $dbname = "club_management";
-$user = "dev";
-$pass = "dev";
+$user = "root";
+$pass = "";
+// $host = "localhost";
+// $dbname = "club_management";
+// $user = "dev";
+// $pass = "dev";
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname", $user, $pass);
