@@ -3,10 +3,10 @@ $host = "localhost";
 $dbname = "club_management";
 $user = "root";
 $pass = "";
-// $host = "localhost";
-// $dbname = "club_management";
-// $user = "dev";
-// $pass = "dev";
+$host = "localhost";
+$dbname = "club_management";
+$user = "dev";
+$pass = "dev";
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname", $user, $pass);

@@ -8,13 +8,6 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
     exit();
 }
 
-// Fetch student_id and club_id for the logged-in user
-if (!isset($_SESSION['user_id'])) {
-    $_SESSION['error'] = "You must be logged in to access this page.";
-    header("Location: login.php");
-    exit();
-}
-
 $user_id = $_SESSION['user_id'];
 
 try {
@@ -52,11 +45,12 @@ $stmt = $pdo->prepare("SELECT COUNT(*) FROM club_members WHERE club_id = ?");
 $stmt->execute([$club_id]);
 $total_members = $stmt->fetchColumn();
 
-// Total club expenses (summing both club expenses and event budgets)
+// Club expenses (club-level)
 $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE club_id = ?");
 $stmt->execute([$club_id]);
 $club_expenses = $stmt->fetchColumn();
 
+// Event expenditures from event_budgets
 $stmt = $pdo->prepare("
     SELECT COALESCE(SUM(eb.cost), 0) 
     FROM event_budgets eb 
@@ -66,7 +60,7 @@ $stmt = $pdo->prepare("
 $stmt->execute([$club_id]);
 $event_expenses = $stmt->fetchColumn();
 
-$total_expenses = $club_expenses + $event_expenses;
+$total_budget = $club_expenses + $event_expenses;
 
 // Due payments from dues table (for members in this club)
 $stmt = $pdo->prepare("
@@ -88,6 +82,11 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute([$club_id]);
 $advisors = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Total events count
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM events WHERE club_id = ?");
+$stmt->execute([$club_id]);
+$total_events = $stmt->fetchColumn();
 
 // Data for Members Joined Graph (grouped by join date)
 $stmt = $pdo->prepare("
@@ -142,7 +141,7 @@ $stmt = $pdo->prepare("
 $stmt->execute([$club_id, $club_id]);
 $expenses = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Handle form submissions (Add Member, Remove Member, Create Event, Create Announcement)
+// Handle form submissions (Add Member, Remove Member, Create Event, Create Announcement, Add Event Expenditure)
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
         // Add member to club
@@ -211,13 +210,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $title = $_POST['announcement_title'];
             $content = $_POST['announcement_content'];
 
-            // Adjusted to match the schema: club_announcements has columns club_id, title, description.
+            // Insert into club_announcements table
             $stmt = $pdo->prepare("
                 INSERT INTO club_announcements (club_id, title, description) 
                 VALUES (?, ?, ?)
             ");
             $stmt->execute([$club_id, $title, $content]);
             $_SESSION['success'] = "Announcement created successfully!";
+        }
+
+        // Add event expenditure (budget)
+        if (isset($_POST['add_expenditure'])) {
+            $event_id = $_POST['event_id'];
+            $item = $_POST['item'];
+            $cost = $_POST['cost'];
+
+            $stmt = $pdo->prepare("INSERT INTO event_budgets (event_id, item, cost) VALUES (?, ?, ?)");
+            $stmt->execute([$event_id, $item, $cost]);
+            $_SESSION['success'] = "Event expenditure added successfully!";
         }
     } catch (Exception $e) {
         $_SESSION['error'] = $e->getMessage();
@@ -238,31 +248,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <!-- Include Chart.js for graphs -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {
-            background-color: #f9f9f9;
-            color: #333;
-        }
-        .navbar {
-            background-color: #000;
-        }
-        .navbar-brand, .navbar-nav .nav-link {
-            color: #fff !important;
-        }
-        .card {
-            border: none;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        .badge {
-            background-color: #000;
-            color: #fff;
-        }
-        .member-email {
-            font-size: 0.85rem;
-            color: #6c757d;
-        }
-        .overview-section {
-            margin-bottom: 2rem;
-        }
+        body { background-color: #f9f9f9; color: #333; }
+        .navbar { background-color: #000; }
+        .navbar-brand, .navbar-nav .nav-link { color: #fff !important; }
+        .card { border: none; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+        .badge { background-color: #000; color: #fff; }
+        .member-email { font-size: 0.85rem; color: #6c757d; }
+        .overview-section { margin-bottom: 2rem; }
+        /* Two-column overview layout */
+        .overview-row { display: flex; flex-wrap: wrap; gap: 1rem; }
+        .overview-col { flex: 1; min-width: 300px; }
     </style>
 </head>
 <body>
@@ -271,6 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <a class="navbar-brand" href="index.php">Club Management</a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="message.php">Message</a>
                 <a class="nav-link" href="clubs.php">Clubs</a>
                 <a class="nav-link" href="events.php">Events</a>
                 <?php if (isset($_SESSION['user_id'])): ?>
@@ -297,74 +293,41 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <!-- OVERVIEW SECTION -->
         <section class="overview-section">
             <h2 class="mb-4">Club Overview: <?= htmlspecialchars($club['name']) ?></h2>
-            <!-- Club Basic Info and Description Update -->
-            <div class="card mb-4">
-                <div class="card-header bg-black text-white">
-                    Club Information
-                </div>
-                <div class="card-body">
-                    <p><strong>Description:</strong> <?= htmlspecialchars($club['description']) ?></p>
-                    <!-- Optionally include a form/button to update the club description -->
-                    <form method="POST" action="update_club.php">
-                        <div class="mb-3">
-                            <label for="club_description" class="form-label">Update Description</label>
-                            <textarea class="form-control" name="club_description" id="club_description" rows="2"><?= htmlspecialchars($club['description']) ?></textarea>
+            <div class="overview-row">
+                <!-- Left Column: Summary Card -->
+                <div class="overview-col">
+                    <div class="card">
+                        <div class="card-header bg-black text-white">
+                            Summary
                         </div>
-                        <input type="hidden" name="club_id" value="<?= $club_id ?>">
-                        <button type="submit" class="btn btn-secondary">Update Description</button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Summary Cards -->
-            <div class="row mb-4">
-                <div class="col-md-3">
-                    <div class="card text-center">
                         <div class="card-body">
-                            <h5 class="card-title">Total Members</h5>
-                            <p class="card-text"><?= $total_members ?></p>
+                            <p><strong>Club Budget:</strong> $<?= number_format($total_budget, 2) ?></p>
+                            <p><strong>Total Events:</strong> <?= $total_events ?></p>
+                            <p><strong>Total Members:</strong> <?= $total_members ?></p>
+                            <p><strong>Advisors:</strong> 
+                                <?php if (!empty($advisors)): ?>
+                                    <?php foreach ($advisors as $advisor): ?>
+                                        <?= htmlspecialchars($advisor['name']) ?> (<?= htmlspecialchars($advisor['department']) ?>)<br>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    None assigned.
+                                <?php endif; ?>
+                            </p>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="card text-center">
+                <!-- Right Column: Reports & Analysis -->
+                <div class="overview-col">
+                    <div class="card">
+                        <div class="card-header bg-black text-white">
+                            Reports & Analysis
+                        </div>
                         <div class="card-body">
-                            <h5 class="card-title">Total Expenses</h5>
-                            <p class="card-text">$<?= number_format($total_expenses, 2) ?></p>
+                            <canvas id="membersJoinedChart"></canvas>
+                            <hr>
+                            <canvas id="expensesPerEventChart"></canvas>
                         </div>
                     </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <h5 class="card-title">Due Payments</h5>
-                            <p class="card-text"><?= $due_payments ?></p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <h5 class="card-title">Advisors</h5>
-                            <?php if (!empty($advisors)): ?>
-                                <?php foreach ($advisors as $advisor): ?>
-                                    <p class="mb-0"><?= htmlspecialchars($advisor['name']) ?> (<?= htmlspecialchars($advisor['department']) ?>)</p>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <p class="card-text">No advisors assigned.</p>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Graphs Section -->
-            <div class="row">
-                <div class="col-md-6">
-                    <canvas id="membersJoinedChart"></canvas>
-                </div>
-                <div class="col-md-6">
-                    <canvas id="expensesPerEventChart"></canvas>
                 </div>
             </div>
         </section>
@@ -390,9 +353,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         </select>
                     </div>
                     <div class="col-md-2 d-flex align-items-end">
-                        <button type="submit" name="add_member" class="btn btn-primary w-100">
-                            Add Member
-                        </button>
+                        <button type="submit" name="add_member" class="btn btn-primary w-100">Add Member</button>
                     </div>
                 </form>
             </div>
@@ -422,9 +383,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 <td>
                                     <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure?')">
                                         <input type="hidden" name="member_id" value="<?= $member['member_id'] ?>">
-                                        <button type="submit" name="remove_member" class="btn btn-danger btn-sm">
-                                            Remove
-                                        </button>
+                                        <button type="submit" name="remove_member" class="btn btn-danger btn-sm">Remove</button>
                                     </form>
                                 </td>
                             </tr>
@@ -462,9 +421,37 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         <textarea name="event_description" class="form-control" rows="3" required></textarea>
                     </div>
                     <div class="col-12">
-                        <button type="submit" name="create_event" class="btn btn-success">
-                            Create Event
-                        </button>
+                        <button type="submit" name="create_event" class="btn btn-success">Create Event</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Add Event Expenditure Form -->
+        <div class="card mb-4">
+            <div class="card-header bg-black text-white">
+                <h3 class="mb-0">Add Event Expenditure</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST" class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Select Event</label>
+                        <select name="event_id" class="form-select" required>
+                            <?php foreach ($events as $event): ?>
+                                <option value="<?= $event['id'] ?>"><?= htmlspecialchars($event['name']) ?> (<?= date('M j, Y', strtotime($event['date'])) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Item</label>
+                        <input type="text" name="item" class="form-control" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Cost</label>
+                        <input type="number" step="0.01" name="cost" class="form-control" required>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" name="add_expenditure" class="btn btn-primary">Add Expenditure</button>
                     </div>
                 </form>
             </div>
@@ -486,9 +473,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         <textarea name="announcement_content" class="form-control" rows="3" required></textarea>
                     </div>
                     <div class="col-12">
-                        <button type="submit" name="create_announcement" class="btn btn-warning">
-                            Post Announcement
-                        </button>
+                        <button type="submit" name="create_announcement" class="btn btn-warning">Post Announcement</button>
                     </div>
                 </form>
             </div>
@@ -500,6 +485,39 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <h3 class="mb-0">Club Expenses</h3>
             </div>
             <div class="card-body">
+                <!-- Collapsible form to add event expenditure -->
+                <button class="btn btn-primary mb-3" type="button" data-bs-toggle="collapse" data-bs-target="#addExpenditureForm" aria-expanded="false" aria-controls="addExpenditureForm">
+                    Add Event Expenditure
+                </button>
+                <div class="collapse" id="addExpenditureForm">
+                    <div class="card card-body mb-3">
+                        <form method="POST" class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Select Event</label>
+                                <select name="event_id" class="form-select" required>
+                                    <?php foreach ($events as $event): ?>
+                                        <option value="<?= $event['id'] ?>">
+                                            <?= htmlspecialchars($event['name']) ?> (<?= date('M j, Y', strtotime($event['date'])) ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Item</label>
+                                <input type="text" name="item" class="form-control" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Cost</label>
+                                <input type="number" step="0.01" name="cost" class="form-control" required>
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" name="add_expenditure" class="btn btn-primary">Add Expenditure</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <!-- End of expenditure form -->
+
                 <?php if (!empty($expenses)): ?>
                     <table class="table table-striped">
                         <thead>
@@ -528,11 +546,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <?php endif; ?>
             </div>
         </div>
+
+        
     </div>
 
     <!-- Graphs Script -->
     <script>
-        // Prepare data for Members Joined Chart
+        // Members Joined Chart
         const memberJoinLabels = [
             <?php foreach ($memberJoinData as $data): ?>
                 "<?= $data['join_date'] ?>",
@@ -560,13 +580,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             },
             options: {
                 responsive: true,
-                scales: {
-                    y: { beginAtZero: true }
-                }
+                scales: { y: { beginAtZero: true } }
             }
         });
 
-        // Prepare data for Expenses per Event Chart
+        // Expenses per Event Chart
         const expenseEventLabels = [
             <?php foreach ($expensesEventData as $data): ?>
                 "<?= $data['event_name'] ?>",
@@ -593,9 +611,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             },
             options: {
                 responsive: true,
-                scales: {
-                    y: { beginAtZero: true }
-                }
+                scales: { y: { beginAtZero: true } }
             }
         });
     </script>

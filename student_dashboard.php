@@ -57,7 +57,38 @@ if (!empty($club_ids)) {
 } else {
     $events = [];
 }
+
+// Fetch club announcements for the clubs the student is part of
+$stmt = $pdo->prepare("
+    SELECT a.id, a.title, a.description, a.created_at, c.name AS club_name 
+    FROM club_announcements a
+    JOIN clubs c ON a.club_id = c.id
+    WHERE a.club_id IN ($placeholders) AND a.created_at >= CURDATE()
+    ORDER BY a.created_at DESC
+    LIMIT 5
+");
+$stmt->execute($club_ids);
+$announcements = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch comments for the announcements
+$announcement_ids = array_column($announcements, 'id');
+if (!empty($announcement_ids)) {
+    $placeholders = implode(',', array_fill(0, count($announcement_ids), '?'));
+    $stmt = $pdo->prepare("
+        SELECT c.comment, c.created_at, cm.position, u.name AS member_name 
+        FROM club_announcement_comments c
+        JOIN club_members cm ON c.member_id = cm.id
+        JOIN users u ON cm.student_id = u.id
+        WHERE c.announcement_id IN ($placeholders)
+        ORDER BY c.created_at ASC
+    ");
+    $stmt->execute($announcement_ids);
+    $comments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} else {
+    $comments = [];
+}
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">
@@ -98,6 +129,7 @@ if (!empty($club_ids)) {
             <a class="navbar-brand" href="index.php">Club Management</a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="message.php">Message</a>
                 <a class="nav-link" href="clubs.php">Clubs</a>
                 <a class="nav-link" href="events.php">Events</a>
                 <?php if (isset($_SESSION['user_id'])): ?>
@@ -148,6 +180,47 @@ if (!empty($club_ids)) {
                 <?php endif; ?>
             </div>
         </div>
+
+        <!-- Announcements Section -->
+        <div class="card mb-4">
+            <div class="card-header bg-black text-white">
+                <h3 class="mb-0">Recent Announcements</h3>
+            </div>
+            <div class="card-body">
+                <?php if (!empty($announcements)): ?>
+                    <div class="list-group">
+                        <?php foreach ($announcements as $announcement): ?>
+                            <a href="announcement_details.php?id=<?= $announcement['id'] ?>" class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h5 class="mb-1"><?= htmlspecialchars($announcement['title']) ?></h5>
+                                    <small class="text-muted"><?= date('M j, Y', strtotime($announcement['created_at'])) ?></small>
+                                </div>
+                                <small class="text-muted"><?= htmlspecialchars($announcement['club_name']) ?></small>
+                                <p class="mt-2"><?= nl2br(htmlspecialchars($announcement['description'])) ?></p>
+                                
+                                <!-- Comments Section -->
+                                <div class="mt-3">
+                                    <h6>Comments:</h6>
+                                    <?php
+                                    // Fetch and display the comments for this announcement
+                                    foreach ($comments as $comment):
+                                        if ($comment['announcement_id'] == $announcement['id']):
+                                    ?>
+                                        <div class="comment">
+                                            <small><strong><?= htmlspecialchars($comment['member_name']) ?> (<?= htmlspecialchars($comment['position']) ?>)</strong> | <?= date('M j, Y', strtotime($comment['created_at'])) ?></small>
+                                            <p><?= nl2br(htmlspecialchars($comment['comment'])) ?></p>
+                                        </div>
+                                    <?php endif; endforeach; ?>
+                                </div>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="text-muted">No recent announcements for your clubs.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
 
         <!-- Upcoming Events Section -->
         <div class="card">

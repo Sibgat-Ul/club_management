@@ -51,6 +51,7 @@ $clubs = $pdo->query("
             <a class="navbar-brand" href="index.php">Club Management</a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="message.php">Message</a>
                 <a class="nav-link" href="clubs.php">Clubs</a>
                 <a class="nav-link" href="events.php">Events</a>
                 <?php if (isset($_SESSION['user_id'])): ?>

@@ -64,7 +64,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['comment_content'], $_P
     $post_id = $_POST['post_id'];
 
     if (!empty($comment_content)) {
-        $stmt = $pdo->prepare("INSERT INTO club_forum_comments (post_id, user_id, content, created_at) VALUES (?, ?, ?, NOW())");
+        $stmt = $pdo->prepare("INSERT INTO forum_comments (post_id, user_id, content, created_at) VALUES (?, ?, ?, NOW())");
         if ($stmt->execute([$post_id, $user_id, $comment_content])) {
             $message = "Comment added successfully!";
         } else {
@@ -91,6 +91,33 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Club Forum</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        .navbar {
+            background-color: #000;
+        }
+        .navbar-brand, .navbar-nav .nav-link {
+            color: #fff !important;
+        }
+        .card {
+            border: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .badge {
+            background-color: #000;
+            color: #fff;
+        }
+        .member-email {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        .overview-section {
+            margin-bottom: 2rem;
+        }
+    </style>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark">
@@ -98,6 +125,7 @@ $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <a class="navbar-brand" href="index.php">Club Management</a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="message.php">Message</a>
                 <a class="nav-link" href="clubs.php">Clubs</a>
                 <a class="nav-link" href="events.php">Events</a>
                 <?php if (isset($_SESSION['user_id'])): ?>
