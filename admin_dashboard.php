@@ -9,7 +9,7 @@ require_once __DIR__ . '/config/config.php';
 // Fetch all users
 $users = $pdo->query("SELECT * FROM users")->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch clubs with advisor name (join via club_advisors -> teachers -> users)
+// Fetch clubs with advisor
 $clubs = $pdo->query("
     SELECT c.*, u.name as advisor_name 
     FROM clubs c 
@@ -18,7 +18,24 @@ $clubs = $pdo->query("
     LEFT JOIN users u ON t.user_id = u.id
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch teachers (advisors) with detailed info from users table
+// $clubs = $pdo->query("SELECT c.*, GROUP_CONCAT(u.name SEPARATOR ', ') as advisor_name
+// FROM clubs c 
+// LEFT JOIN club_advisors ca ON c.id = ca.club_id
+// LEFT JOIN teachers t ON ca.advisor_id = t.id
+// LEFT JOIN users u ON t.user_id = u.id
+// GROUP BY c.id
+// ORDER BY c.name ASC
+// ")->fetchAll(PDO::FETCH_ASSOC);
+
+$students = $pdo->query("
+    SELECT s.id, u.name, u.email, GROUP_CONCAT(cm.club_id) AS club_ids 
+    FROM students s
+    JOIN users u ON s.user_id = u.id
+    JOIN club_members cm ON s.id = cm.student_id
+    GROUP BY s.id
+")->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch teachers from users table
 $teachers = $pdo->query("
     SELECT t.id, u.name, u.email, t.department 
     FROM teachers t 
@@ -31,10 +48,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
         $stmt->execute([$_POST['user_id']]);
     }
+    
     if (isset($_POST['delete_club'])) {
         $stmt = $pdo->prepare("DELETE FROM clubs WHERE id = ?");
         $stmt->execute([$_POST['club_id']]);
     }
+
     if (isset($_POST['assign_advisor'])) {
         // Remove existing advisor for the club first
         $stmt = $pdo->prepare("DELETE FROM club_advisors WHERE club_id = ?");
@@ -44,6 +63,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $stmt = $pdo->prepare("INSERT INTO club_advisors (club_id, advisor_id) VALUES (?, ?)");
         $stmt->execute([$_POST['club_id'], $_POST['teacher_id']]);
     }
+
     if (isset($_POST['add_teacher'])) {
         // Insert a new user with role 'advisor'
         $name = $_POST['name'];
@@ -60,6 +80,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $stmt = $pdo->prepare("INSERT INTO teachers (user_id, department) VALUES (?, ?)");
         $stmt->execute([$user_id, $department]);
     }
+
     if (isset($_POST['create_club'])) {
         // Create new club
         $club_name = $_POST['club_name'];
@@ -88,18 +109,46 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         .nav-tabs .nav-link.active {
             font-weight: bold;
         }
+        body {
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        .navbar {
+            background-color: #000;
+        }
+        .navbar-brand, .navbar-nav .nav-link {
+            color: #fff !important;
+        }
+        .card {
+            border: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .badge {
+            background-color: #000;
+            color: #fff;
+        }
+        .member-email {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+    </style>
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="index.php">
-                <i class="bi bi-people-fill"></i> Club Management System
-            </a>
-            <div class="collapse navbar-collapse">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="logout.php">Logout</a></li>
-                </ul>
+            <a class="navbar-brand" href="index.php">Club Management</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="clubs.php">Clubs</a>
+                <a class="nav-link" href="events.php">Events</a>
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <a class="nav-link" href="<?= $_SESSION['role'] === 'admin' ? 'admin_dashboard.php' : ($_SESSION['role'] === 'club_manager' ? 'club_manager_dashboard.php' : 'student_dashboard.php') ?>">Dashboard</a>
+                    <a class="nav-link" href="logout.php">Logout</a>
+                <?php else: ?>
+                    <a class="nav-link" href="login.php">Login</a>
+                    <a class="nav-link" href="signup.php">Sign Up</a>
+                <?php endif; ?>
             </div>
         </div>
     </nav>
@@ -237,7 +286,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     </div>
                 </div>
 
-                <!-- Assign Advisor Form -->
                 <div class="card mt-4">
                     <div class="card-header bg-primary text-white">
                         <h4><i class="bi bi-person-plus"></i> Assign Advisor to Club</h4>
@@ -270,6 +318,40 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         </form>
                     </div>
                 </div>
+
+                <div class="card mt-4">
+                    <div class="card-header bg-primary text-white">
+                        <h4><i class="bi bi-person-plus"></i> Assign Club Manager</h4>
+                    </div>
+                    <div class="card-body">
+                        <form method="post" class="row g-3">
+                            <div class="col-md-5">
+                                <label class="form-label">Select Club</label>
+                                <select name="club_id" class="form-select" id="clubSelect" required>
+                                    <?php foreach ($clubs as $club): ?>
+                                        <option value="<?= $club['id'] ?>"><?= htmlspecialchars($club['name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label">Select Student (Existing Member)</label>
+                                <select name="student_id" class="form-select" id="studentSelect" required>
+                                    <?php foreach ($students as $student): ?>
+                                        <option value="<?= $student['id'] ?>" data-club-ids="<?= htmlspecialchars($student['club_ids']) ?>">
+                                            <?= htmlspecialchars($student['name']) ?> (<?= htmlspecialchars($student['email']) ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button type="submit" name="assign_club_manager" class="btn btn-primary w-100">
+                                    <i class="bi bi-save"></i> Assign
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                
             </div>
 
             <!-- Teachers Tab -->
@@ -334,5 +416,29 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('clubSelect').addEventListener('change', function() {
+            const selectedClubId = this.value;
+            const studentSelect = document.getElementById('studentSelect');
+            
+            // Reset and disable all options first
+            Array.from(studentSelect.options).forEach(option => {
+                option.disabled = true;
+                option.style.display = 'none';
+            });
+
+            // Enable options that belong to the selected club
+            Array.from(studentSelect.options).forEach(option => {
+                const clubIds = option.dataset.clubIds.split(',').map(id => id.trim());
+                if (clubIds.includes(selectedClubId)) {
+                    option.disabled = false;
+                    option.style.display = 'block';
+                }
+            });
+
+            // Reset selection
+            studentSelect.value = '';
+        });
+    </script>
 </body>
 </html>

@@ -134,6 +134,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['rsvp'])) {
         <div class="container">
             <a class="navbar-brand" href="index.php">Club Management</a>
             <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="clubs.php">Clubs</a>
+                <a class="nav-link" href="events.php">Events</a>
                 <?php if (isset($_SESSION['user_id'])): ?>
                     <a class="nav-link" href="<?= $_SESSION['role'] === 'admin' ? 'admin_dashboard.php' : ($_SESSION['role'] === 'club_manager' ? 'club_manager_dashboard.php' : 'student_dashboard.php') ?>">Dashboard</a>
                     <a class="nav-link" href="logout.php">Logout</a>
@@ -146,7 +149,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['rsvp'])) {
     </nav>
 
     <div class="container mt-5">
-        <!-- Display RSVP messages if they exist -->
         <?php if (isset($_SESSION['rsvp_success'])): ?>
             <div class="alert alert-success"><?= htmlspecialchars($_SESSION['rsvp_success']) ?></div>
             <?php unset($_SESSION['rsvp_success']); ?>
@@ -157,7 +159,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['rsvp'])) {
 
         <div class="row">
             <div class="col-md-8">
-                <!-- Event Details -->
                 <div class="card mb-4">
                     <div class="card-body">
                         <h1 class="card-title"><?= htmlspecialchars($event['name']) ?></h1>
@@ -173,7 +174,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['rsvp'])) {
             </div>
 
             <div class="col-md-4">
-                <!-- RSVP Section -->
                 <div class="card mb-4">
                     <div class="card-header bg-black text-white">
                         <h3 class="mb-0">RSVP</h3>
@@ -206,7 +206,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['rsvp'])) {
                     </div>
                 </div>
 
-                <!-- Attendees Section -->
                 <div class="card">
                     <div class="card-header bg-black text-white">
                         <h3 class="mb-0">Attendees</h3>

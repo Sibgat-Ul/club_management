@@ -29,23 +29,43 @@ if ($club_id) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= $club_id ? htmlspecialchars($club_name) . ' Events' : 'All Events' ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        .navbar {
+            background-color: #000;
+        }
+        .navbar-brand, .navbar-nav .nav-link {
+            color: #fff !important;
+        }
+        .card {
+            border: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+    </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+    <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand" href="index.php">Club Management</a>
-            <div class="navbar-nav">
-                <a class="nav-link" href="clubs.php">All Clubs</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="clubs.php">Clubs</a>
+                <a class="nav-link" href="events.php">Events</a>
                 <?php if (isset($_SESSION['user_id'])): ?>
-                    <a class="nav-link" href="dashboard.php">Dashboard</a>
+                    <a class="nav-link" href="<?= $_SESSION['role'] === 'admin' ? 'admin_dashboard.php' : ($_SESSION['role'] === 'club_manager' ? 'club_manager_dashboard.php' : 'student_dashboard.php') ?>">Dashboard</a>
+                    <a class="nav-link" href="logout.php">Logout</a>
                 <?php else: ?>
                     <a class="nav-link" href="login.php">Login</a>
+                    <a class="nav-link" href="signup.php">Sign Up</a>
                 <?php endif; ?>
             </div>
         </div>
     </nav>
 
-    <div class="container">
+    <div class="container mt-5">
         <h2 class="mb-4"><?= $club_id ? htmlspecialchars($club_name) . ' Events' : 'All Events' ?></h2>
 
         <?php if (!empty($events)): ?>

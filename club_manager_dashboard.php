@@ -8,28 +8,36 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'student') {
     exit();
 }
 
-// Get club ID from URL
-$club_id = $_GET['id'] ?? null;
-if (!$club_id || !is_numeric($club_id)) {
-    $_SESSION['error'] = "Invalid club ID.";
-    header("Location: student_dashboard.php");
+// Fetch student_id and club_id for the logged-in user
+if (!isset($_SESSION['user_id'])) {
+    $_SESSION['error'] = "You must be logged in to access this page.";
+    header("Location: login.php");
     exit();
 }
 
-// Verify user is president/secretary of this club
 $user_id = $_SESSION['user_id'];
-$stmt = $pdo->prepare("
-    SELECT cm.position 
-    FROM club_members cm
-    JOIN students s ON cm.student_id = s.id
-    WHERE s.user_id = ? AND cm.club_id = ?
-");
-$stmt->execute([$user_id, $club_id]);
-$position = $stmt->fetchColumn();
 
-if (!$position || !in_array($position, ['president', 'secretary'])) {
-    $_SESSION['error'] = "You do not have permission to manage this club.";
-    header("Location: club_details.php?id=$club_id");
+try {
+    // Get the student ID for the logged-in user
+    $stmt = $pdo->prepare("SELECT id FROM students WHERE user_id = ?");
+    $stmt->execute([$user_id]);
+    $student_id = $stmt->fetchColumn();
+
+    if (!$student_id) {
+        throw new Exception("Student record not found for the logged-in user.");
+    }
+
+    // Get the club ID for the student (assuming they can only belong to one club)
+    $stmt = $pdo->prepare("SELECT club_id FROM club_members WHERE student_id = ?");
+    $stmt->execute([$student_id]);
+    $club_id = $stmt->fetchColumn();
+
+    if (!$club_id) {
+        throw new Exception("You are not a member of any club.");
+    }
+} catch (Exception $e) {
+    $_SESSION['error'] = $e->getMessage();
+    header("Location: student_dashboard.php");
     exit();
 }
 
@@ -37,6 +45,71 @@ if (!$position || !in_array($position, ['president', 'secretary'])) {
 $stmt = $pdo->prepare("SELECT * FROM clubs WHERE id = ?");
 $stmt->execute([$club_id]);
 $club = $stmt->fetch(PDO::FETCH_ASSOC);
+
+// ------------------- OVERVIEW QUERIES ------------------- //
+// Total members
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM club_members WHERE club_id = ?");
+$stmt->execute([$club_id]);
+$total_members = $stmt->fetchColumn();
+
+// Total club expenses (summing both club expenses and event budgets)
+$stmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE club_id = ?");
+$stmt->execute([$club_id]);
+$club_expenses = $stmt->fetchColumn();
+
+$stmt = $pdo->prepare("
+    SELECT COALESCE(SUM(eb.cost), 0) 
+    FROM event_budgets eb 
+    JOIN events ev ON eb.event_id = ev.id 
+    WHERE ev.club_id = ?
+");
+$stmt->execute([$club_id]);
+$event_expenses = $stmt->fetchColumn();
+
+$total_expenses = $club_expenses + $event_expenses;
+
+// Due payments from dues table (for members in this club)
+$stmt = $pdo->prepare("
+    SELECT COUNT(*) 
+    FROM dues 
+    WHERE status = 'unpaid' 
+      AND member_id IN (SELECT id FROM club_members WHERE club_id = ?)
+");
+$stmt->execute([$club_id]);
+$due_payments = $stmt->fetchColumn();
+
+// Advisors of the club (joining teachers with users to get the name)
+$stmt = $pdo->prepare("
+    SELECT u.name, t.department 
+    FROM teachers t 
+    JOIN users u ON t.user_id = u.id 
+    JOIN club_advisors ca ON t.id = ca.advisor_id 
+    WHERE ca.club_id = ?
+");
+$stmt->execute([$club_id]);
+$advisors = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Data for Members Joined Graph (grouped by join date)
+$stmt = $pdo->prepare("
+    SELECT DATE(created_at) AS join_date, COUNT(*) AS count 
+    FROM club_members 
+    WHERE club_id = ? 
+    GROUP BY DATE(created_at) 
+    ORDER BY join_date ASC
+");
+$stmt->execute([$club_id]);
+$memberJoinData = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Data for Expenses per Event Graph
+$stmt = $pdo->prepare("
+    SELECT ev.name AS event_name, COALESCE(SUM(eb.cost), 0) AS total_event_expense
+    FROM events ev 
+    LEFT JOIN event_budgets eb ON ev.id = eb.event_id 
+    WHERE ev.club_id = ?
+    GROUP BY ev.id
+");
+$stmt->execute([$club_id]);
+$expensesEventData = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch club members
 $stmt = $pdo->prepare("
@@ -69,7 +142,7 @@ $stmt = $pdo->prepare("
 $stmt->execute([$club_id, $club_id]);
 $expenses = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Handle form submissions
+// Handle form submissions (Add Member, Remove Member, Create Event, Create Announcement)
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
         // Add member to club
@@ -138,11 +211,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $title = $_POST['announcement_title'];
             $content = $_POST['announcement_content'];
 
+            // Adjusted to match the schema: club_announcements has columns club_id, title, description.
             $stmt = $pdo->prepare("
-                INSERT INTO club_announcements (club_id, user_id, title, content) 
-                VALUES (?, ?, ?, ?)
+                INSERT INTO club_announcements (club_id, title, description) 
+                VALUES (?, ?, ?)
             ");
-            $stmt->execute([$club_id, $user_id, $title, $content]);
+            $stmt->execute([$club_id, $title, $content]);
             $_SESSION['success'] = "Announcement created successfully!";
         }
     } catch (Exception $e) {
@@ -161,6 +235,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage <?= htmlspecialchars($club['name']) ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Include Chart.js for graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             background-color: #f9f9f9;
@@ -184,6 +260,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             font-size: 0.85rem;
             color: #6c757d;
         }
+        .overview-section {
+            margin-bottom: 2rem;
+        }
     </style>
 </head>
 <body>
@@ -191,8 +270,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <div class="container">
             <a class="navbar-brand" href="index.php">Club Management</a>
             <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="student_dashboard.php">Student Dashboard</a>
-                <a class="nav-link" href="logout.php">Logout</a>
+                <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="clubs.php">Clubs</a>
+                <a class="nav-link" href="events.php">Events</a>
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <a class="nav-link" href="<?= $_SESSION['role'] === 'admin' ? 'admin_dashboard.php' : ($_SESSION['role'] === 'club_manager' ? 'club_manager_dashboard.php' : 'student_dashboard.php') ?>">Dashboard</a>
+                    <a class="nav-link" href="logout.php">Logout</a>
+                <?php else: ?>
+                    <a class="nav-link" href="login.php">Login</a>
+                    <a class="nav-link" href="signup.php">Sign Up</a>
+                <?php endif; ?>
             </div>
         </div>
     </nav>
@@ -207,7 +294,80 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <?php unset($_SESSION['error']); ?>
         <?php endif; ?>
 
-        <h2 class="mb-4">Manage <?= htmlspecialchars($club['name']) ?></h2>
+        <!-- OVERVIEW SECTION -->
+        <section class="overview-section">
+            <h2 class="mb-4">Club Overview: <?= htmlspecialchars($club['name']) ?></h2>
+            <!-- Club Basic Info and Description Update -->
+            <div class="card mb-4">
+                <div class="card-header bg-black text-white">
+                    Club Information
+                </div>
+                <div class="card-body">
+                    <p><strong>Description:</strong> <?= htmlspecialchars($club['description']) ?></p>
+                    <!-- Optionally include a form/button to update the club description -->
+                    <form method="POST" action="update_club.php">
+                        <div class="mb-3">
+                            <label for="club_description" class="form-label">Update Description</label>
+                            <textarea class="form-control" name="club_description" id="club_description" rows="2"><?= htmlspecialchars($club['description']) ?></textarea>
+                        </div>
+                        <input type="hidden" name="club_id" value="<?= $club_id ?>">
+                        <button type="submit" class="btn btn-secondary">Update Description</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title">Total Members</h5>
+                            <p class="card-text"><?= $total_members ?></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title">Total Expenses</h5>
+                            <p class="card-text">$<?= number_format($total_expenses, 2) ?></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title">Due Payments</h5>
+                            <p class="card-text"><?= $due_payments ?></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title">Advisors</h5>
+                            <?php if (!empty($advisors)): ?>
+                                <?php foreach ($advisors as $advisor): ?>
+                                    <p class="mb-0"><?= htmlspecialchars($advisor['name']) ?> (<?= htmlspecialchars($advisor['department']) ?>)</p>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <p class="card-text">No advisors assigned.</p>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Graphs Section -->
+            <div class="row">
+                <div class="col-md-6">
+                    <canvas id="membersJoinedChart"></canvas>
+                </div>
+                <div class="col-md-6">
+                    <canvas id="expensesPerEventChart"></canvas>
+                </div>
+            </div>
+        </section>
 
         <!-- Add Member Form -->
         <div class="card mb-4">
@@ -335,7 +495,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         </div>
 
         <!-- Expenses Section -->
-        <div class="card">
+        <div class="card mb-4">
             <div class="card-header bg-black text-white">
                 <h3 class="mb-0">Club Expenses</h3>
             </div>
@@ -369,6 +529,76 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             </div>
         </div>
     </div>
+
+    <!-- Graphs Script -->
+    <script>
+        // Prepare data for Members Joined Chart
+        const memberJoinLabels = [
+            <?php foreach ($memberJoinData as $data): ?>
+                "<?= $data['join_date'] ?>",
+            <?php endforeach; ?>
+        ];
+        const memberJoinCounts = [
+            <?php foreach ($memberJoinData as $data): ?>
+                <?= $data['count'] ?>,
+            <?php endforeach; ?>
+        ];
+
+        const ctxMembers = document.getElementById('membersJoinedChart').getContext('2d');
+        const membersJoinedChart = new Chart(ctxMembers, {
+            type: 'line',
+            data: {
+                labels: memberJoinLabels,
+                datasets: [{
+                    label: 'Members Joined',
+                    data: memberJoinCounts,
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+
+        // Prepare data for Expenses per Event Chart
+        const expenseEventLabels = [
+            <?php foreach ($expensesEventData as $data): ?>
+                "<?= $data['event_name'] ?>",
+            <?php endforeach; ?>
+        ];
+        const expenseEventTotals = [
+            <?php foreach ($expensesEventData as $data): ?>
+                <?= $data['total_event_expense'] ?>,
+            <?php endforeach; ?>
+        ];
+
+        const ctxExpenses = document.getElementById('expensesPerEventChart').getContext('2d');
+        const expensesPerEventChart = new Chart(ctxExpenses, {
+            type: 'bar',
+            data: {
+                labels: expenseEventLabels,
+                datasets: [{
+                    label: 'Expenses per Event',
+                    data: expenseEventTotals,
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    </script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>

@@ -1,13 +1,12 @@
 <?php
 session_start();
-require_once 'config/config.php'; // Correct path to config file
+require_once 'config/config.php';
 
-// Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $email = $_POST['email'];
     $password = $_POST['password'];
 
-    // Query to check if the user exists
+    // Query to check if the user exists in users table
     $stmt = $pdo->prepare("SELECT * FROM users WHERE email = :email");
     $stmt->execute(['email' => $email]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -17,19 +16,47 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['role'] = $user['role'];
 
-        // Redirect based on role
+        // Redirect club managers or students with leadership roles
+        if ($user['role'] === 'club_manager') {
+            header("Location: club_manager_dashboard.php");
+            exit;
+        }
+
+        if ($user['role'] === 'student') {
+            // Get student ID from students table
+            $stmt = $pdo->prepare("SELECT id FROM students WHERE user_id = ?");
+            $stmt->execute([$user['id']]);
+            $student_id = $stmt->fetchColumn();
+
+            $_SESSION['student_id'] = $student_id;
+
+            if ($student_id) {
+                // Check if student holds any leadership position in any club
+                $stmt = $pdo->prepare("
+                    SELECT COUNT(*) 
+                    FROM club_members 
+                    WHERE student_id = ? AND position != 'member'
+                ");
+                $stmt->execute([$student_id]);
+                $has_leadership_role = $stmt->fetchColumn();
+
+                if ($has_leadership_role > 0) {
+                    header("Location: club_manager_dashboard.php");
+                    exit;
+                }
+            }
+        }
+
+        // Default role-based redirects
         switch ($user['role']) {
             case 'admin':
                 header("Location: admin_dashboard.php");
                 break;
-            case 'club_manager':
-                header("Location: club_manager_dashboard.php");
+            case 'advisor':
+                header("Location: advisor_dashboard.php");
                 break;
             case 'student':
                 header("Location: student_dashboard.php");
-                break;
-            case 'advisor':
-                header("Location: advisor_dashboard.php");
                 break;
             default:
                 header("Location: index.php");
@@ -37,7 +64,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
         exit;
     } else {
-        // Invalid credentials
         $error = "Invalid email or password.";
     }
 }
@@ -73,7 +99,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <div class="container">
             <a class="navbar-brand" href="index.php">Club Management</a>
             <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="signup.php">Sign Up</a>
+                <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="clubs.php">Clubs</a>
+                <a class="nav-link" href="events.php">Events</a>
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <a class="nav-link" href="<?= $_SESSION['role'] === 'admin' ? 'admin_dashboard.php' : ($_SESSION['role'] === 'club_manager' ? 'club_manager_dashboard.php' : 'student_dashboard.php') ?>">Dashboard</a>
+                    <a class="nav-link" href="logout.php">Logout</a>
+                <?php else: ?>
+                    <a class="nav-link" href="login.php">Login</a>
+                    <a class="nav-link" href="signup.php">Sign Up</a>
+                <?php endif; ?>
             </div>
         </div>
     </nav>

@@ -125,22 +125,23 @@ if (!empty($clubIds)) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
-            <a class="navbar-brand" href="index.php">Advisor Dashboard</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="index.php">Home</a></li>
-                    <li class="nav-item"><a class="nav-link" href="clubs.php">Clubs</a></li>
-                    <li class="nav-item"><a class="nav-link" href="events.php">Events</a></li>
-                </ul>
+            <a class="navbar-brand" href="index.php">Club Management</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="forum.php">Forum</a>
+                <a class="nav-link" href="clubs.php">Clubs</a>
+                <a class="nav-link" href="events.php">Events</a>
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <a class="nav-link" href="<?= $_SESSION['role'] === 'admin' ? 'admin_dashboard.php' : ($_SESSION['role'] === 'club_manager' ? 'club_manager_dashboard.php' : 'student_dashboard.php') ?>">Dashboard</a>
+                    <a class="nav-link" href="logout.php">Logout</a>
+                <?php else: ?>
+                    <a class="nav-link" href="login.php">Login</a>
+                    <a class="nav-link" href="signup.php">Sign Up</a>
+                <?php endif; ?>
             </div>
         </div>
-    </nav> 
-
+    </nav>
     <div class="container mt-5">
         <h2>Welcome, Advisor!</h2>
         <?php if (!empty($message)): ?>
